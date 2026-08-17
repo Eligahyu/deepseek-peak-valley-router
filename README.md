@@ -1,4 +1,4 @@
-# peak-valley-router
+# deepseek-peak-valley-router
 
 DeepSeek Harness 的**峰谷定价自动模型路由**插件:自动识别 DeepSeek API 当前处于高峰还是空闲时段,并据此自动选择模型——**高峰时段用便宜的 `deepseek-v4-flash` 省钱,空闲时段用更强的 `deepseek-v4-pro` 提质量**。你显式选择的模型始终优先,插件绝不剥夺你的选择权。
 
@@ -36,17 +36,17 @@ DeepSeek Harness 的**峰谷定价自动模型路由**插件:自动识别 DeepSe
 1. 把本仓库复制到 profile 共享的 node_modules:
 
    ```sh
-   cp -r peak-valley-router ~/.dsh/profiles/node_modules/peak-valley-router
+   cp -r deepseek-peak-valley-router ~/.dsh/profiles/node_modules/deepseek-peak-valley-router
    # Windows PowerShell:
-   # Copy-Item -Recurse peak-valley-router "$env:USERPROFILE\.dsh\profiles\node_modules\peak-valley-router"
+   # Copy-Item -Recurse deepseek-peak-valley-router "$env:USERPROFILE\.dsh\profiles\node_modules\deepseek-peak-valley-router"
    ```
 
 2. 在 profile 的补丁层注册(例如 `~/.dsh/profiles/web/cordis.patch.yml` 追加):
 
    ```yaml
    - insert:
-       - id: peak-valley-router
-         name: peak-valley-router
+       - id: deepseek-peak-valley-router
+         name: deepseek-peak-valley-router
          # 可选配置:参考时区(默认 Asia/Shanghai)
          # config:
          #   timeZone: 'Asia/Shanghai'
@@ -80,7 +80,7 @@ DeepSeek Harness 的**峰谷定价自动模型路由**插件:自动识别 DeepSe
 ## 目录结构
 
 ```
-peak-valley-router/
+deepseek-peak-valley-router/
 ├── lib/
 │   ├── index.js          # 组合安装版插件(ESM,配置文件读 config.timeZone)
 │   └── timezone.js       # 纯逻辑:时区换算 + 峰谷判定(零依赖,可独立测试)
