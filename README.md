@@ -1,5 +1,7 @@
 # deepseek-peak-valley-router
 
+**[English](README.en.md) | 简体中文**
+
 DeepSeek Harness 的**峰谷定价自动模型路由**插件:自动识别 DeepSeek API 当前处于高峰还是空闲时段,并据此自动选择模型——**高峰时段用便宜的 `deepseek-v4-flash` 省钱,空闲时段用更强的 `deepseek-v4-pro` 提质量**。你显式选择的模型始终优先,插件绝不剥夺你的选择权。
 
 > 背景:DeepSeek 自 2026-08-17 起对 V4 系列 API 实行**峰谷定价**——高峰时段价格为空闲时段的 2 倍。官方高峰时段按**北京时间**定义为 `09:00-12:00` 与 `14:00-18:00`,其余为空闲时段。本插件据此自动调度,无需手动换模型。
@@ -81,6 +83,7 @@ DeepSeek Harness 的**峰谷定价自动模型路由**插件:自动识别 DeepSe
 
 ```
 deepseek-peak-valley-router/
+├── .github/workflows/test.yml # CI:Node 20/22/24 上自动跑 node --test
 ├── lib/
 │   ├── index.js          # 组合安装版插件(ESM,配置文件读 config.timeZone)
 │   └── timezone.js       # 纯逻辑:时区换算 + 峰谷判定(零依赖,可独立测试)
@@ -89,7 +92,8 @@ deepseek-peak-valley-router/
 ├── test/
 │   └── timezone.test.js  # node --test 用例(时区换算、边界时刻、跨午夜)
 ├── package.json
-├── README.md
+├── README.md             # 中文文档
+├── README.en.md          # English docs
 └── LICENSE
 ```
 
