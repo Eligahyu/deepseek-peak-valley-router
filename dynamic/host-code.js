@@ -4,9 +4,11 @@
  * 把下方 HOST_CODE 的完整内容粘贴到对话中 cordis_define 工具的 code.host 参数
  * (plugin.kind 选 new 或 existing 均可),然后 cordis_run 激活。
  *
- * 与 lib/index.js(组合安装版)行为完全一致,差异仅在运行载体:
- *   - 动态版:使用沙箱提供的 harness.defineTool / harness.registerTool;
- *   - 组合版:从 @deepseek-ai/dsh-tools 导入 defineTool 后 ctx.tools.register。
+ * 与 lib/index.js(组合安装版)行为一致,差异仅在运行载体与宿主 API:
+ *   - 动态版:使用沙箱提供的 harness.defineTool / harness.registerTool,并额外
+ *     暴露 harness.handle('peak-valley-status') 供 Client UI 查询;
+ *   - 组合版:从 @deepseek-ai/dsh-tools 导入 defineTool 后 ctx.tools.register,
+ *     状态查询通过对话级工具 peakvalley_status 完成(无 host 通道)。
  */
 export const HOST_CODE = `
 return {
@@ -23,13 +25,19 @@ return {
     const DEEPSEEK_PROVIDERS = ['deepseek-official', 'deepseek']
     const DEFAULT_MODEL_NS = 'agent-default-model'
 
+    const log = (level, message) => {
+      const fn = ctx.logger?.[level] ?? console[level] ?? console.log
+      fn(message)
+    }
+
     const formatter = new Intl.DateTimeFormat('en-US', {
       timeZone: REFERENCE_TIME_ZONE,
       year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
     })
 
-    // 参考时区墙钟时间 { year, month, day, hour, minute }。Intl 不可用时回退 UTC+8。
+    // 参考时区墙钟时间 { year, month, day, hour, minute }。绝不抛错:
+    // Intl 不可用时回退 UTC+8(Asia/Shanghai 无夏令时)。
     function referenceNow() {
       try {
         const parts = formatter.formatToParts(new Date())
@@ -60,14 +68,29 @@ return {
       }
     }
 
+    // 替换模型;切到 flash 时丢弃 reasoningEffort(flash 可能仅支持 off)。
+    function withModel(config, model) {
+      const replacement = { ...config, model }
+      if (model === FLASH && replacement.reasoningEffort !== undefined) {
+        delete replacement.reasoningEffort
+      }
+      return replacement
+    }
+
     // 用户显式选择:界面模型选择器保存默认模型时,selectModel RPC 会把选择写入
     // agent-default-model 设置 → 触发 settings/updated 事件。记录后即尊重该选择。
     let userPicked = undefined
 
-    // 启动时兜底:若当前默认模型已是 pro(而非出厂默认 flash),视为用户先前显式选择。
-    const adm = ctx.get('agentDefaultModel')
-    if (adm !== undefined) {
-      const current = adm.currentSelection()
+    // 启动兜底改为"首次请求时懒加载"(agent-default-model 与插件并行挂载,
+    // apply 时刻可能未就绪,一次性 ctx.get 存在竞态)。首次路由请求时若默认
+    // 模型已是 pro(非出厂默认 flash),视为用户先前显式选择。
+    let fallbackChecked = false
+    function ensureStartupFallback() {
+      if (fallbackChecked || userPicked !== undefined) return
+      fallbackChecked = true
+      const adm = ctx.get('agentDefaultModel')
+      if (adm === undefined) return
+      const current = typeof adm.currentSelection === 'function' ? adm.currentSelection() : undefined
       if (current !== undefined && typeof current.provider === 'string' && current.model === PRO) {
         userPicked = { provider: current.provider, model: current.model }
       }
@@ -80,42 +103,39 @@ return {
       const model = next.model
       if (typeof provider !== 'string' || typeof model !== 'string') return
       userPicked = { provider, model }
-      console.log('peak-valley: 检测到用户显式模型选择 ' + provider + '/' + model + ',后续请求尊重该选择(不再自动切换)')
+      log('info', 'peak-valley: 检测到用户显式模型选择 ' + provider + '/' + model + ',后续请求尊重该选择(不再自动切换)')
     })
 
     let lastState = null
 
     // agent/request 瀑布:next() 产出冻结的 LlmCallConfig,返回替换对象即切换模型,
     // 切换会被记录进 request/header。规则:非 DeepSeek 路由或非 V4 双模型不动;
-    // 用户显式选择优先;其余按峰谷自动路由。
+    // 用户显式选择优先(同一 provider 直接路由到所选模型);其余按峰谷自动路由。
     ctx.on('agent/request', async (_payload, next) => {
+      ensureStartupFallback()
       const config = await next()
       if (!DEEPSEEK_PROVIDERS.includes(config.provider)) return config
       if (config.model !== FLASH && config.model !== PRO) return config
 
-      if (userPicked !== undefined
-        && userPicked.provider === config.provider
-        && userPicked.model === config.model) {
-        return config
+      // 用户显式选择优先:同一 provider 下直接路由到用户选择的模型,
+      // 请求当前配置(会话/子代理冻结值)是什么都尊重用户选择。
+      if (userPicked !== undefined && userPicked.provider === config.provider) {
+        if (config.model === userPicked.model) return config
+        log('info', 'peak-valley: 尊重用户显式选择 ' + userPicked.model + '(请求配置 ' + config.model + ')')
+        return withModel(config, userPicked.model)
       }
 
       const state = windowState()
       if (state.peak && config.model === FLASH) return config
       if (!state.peak && config.model === PRO) return config
 
-      const replacement = { ...config, model: state.target }
-      // flash 可能仅支持 reasoningEffort 'off',切到 flash 时丢弃 effort 落到适配器默认。
-      if (state.target === FLASH && replacement.reasoningEffort !== undefined) {
-        delete replacement.reasoningEffort
-      }
-
       const label = state.peak ? '高峰' : '空闲'
       if (lastState !== label) {
         lastState = label
-        console.log('peak-valley: 进入' + label + '时段(参考时区 ' + state.beijing + '),DeepSeek 模型路由 -> ' + state.target)
+        log('info', 'peak-valley: 进入' + label + '时段(参考时区 ' + state.beijing + '),DeepSeek 模型路由 -> ' + state.target)
       }
-      console.log('peak-valley: ' + config.model + ' -> ' + state.target + ' (' + label + ', 参考时区 ' + state.beijing + ')')
-      return replacement
+      log('info', 'peak-valley: ' + config.model + ' -> ' + state.target + ' (' + label + ', 参考时区 ' + state.beijing + ')')
+      return withModel(config, state.target)
     })
 
     function statusSnapshot() {
@@ -133,7 +153,7 @@ return {
       }
     }
 
-    // 供后续 Client UI 查询当前识别结果。
+    // 供后续 Client UI 查询当前识别结果(动态版专属;组合版用 peakvalley_status 工具)。
     harness.handle('peak-valley-status', () => statusSnapshot())
 
     // 对话级工具:查询当前峰谷识别与路由模式。

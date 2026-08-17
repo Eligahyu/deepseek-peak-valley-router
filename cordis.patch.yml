@@ -1,0 +1,16 @@
+# deepseek-peak-valley-router bundle patch — registers the peak/valley model router.
+#
+# Install (official path, requires this package to declare dsh.bundle):
+#   dsh plugin --profile web add ./deepseek-peak-valley-router        # local checkout
+#   dsh plugin --profile web add github:Eligahyu/deepseek-peak-valley-router
+#   dsh plugin --profile web add deepseek-peak-valley-router          # once published to npm
+#
+# The plugin module resolves as the package root (`deepseek-peak-valley-router`),
+# whose default export carries the Cordis { name, inject, apply } contract;
+# peer deps fall through to the launcher-maintained flat module fallback.
+- insert:
+    - id: deepseek-peak-valley-router
+      name: 'deepseek-peak-valley-router'
+      config:
+        # IANA 参考时区;无效值会回退 Asia/Shanghai 并在日志中告警。
+        timeZone: 'Asia/Shanghai'
